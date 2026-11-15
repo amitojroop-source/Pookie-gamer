@@ -7,7 +7,7 @@ import uuid
 import discord
 from discord import app_commands
 from dotenv import load_dotenv
-from content import GAMES
+from content import GAMES, COUNTRIES
 from engine import Game
 from storage import Scores
 
@@ -127,6 +127,11 @@ class GameView(discord.ui.View):
     def embed(self):
         emoji,title,_=GAMES[self.game.kind]
         embed=discord.Embed(title=f'{emoji} {title}',description=self.game.text(),color=0x43C59E if self.game.outcome=='win' else COLOR)
+        if self.game.kind=='country':
+            # Full-size image; retain the emoji/clue as a fallback if the CDN is unavailable.
+            flag=next(flag for name,flag,_,_ in COUNTRIES if name==self.game.answer)
+            code=''.join(chr(ord(char)-0x1F1E6+ord('a')) for char in flag)
+            embed.set_image(url=f'https://flagcdn.com/w640/{code}.png')
         embed.set_author(name=f'{self.name[:60]} • Pookie Gamer')
         embed.set_footer(text='Everyone can play • 3 minutes without a move ends the round • /games')
         return embed
