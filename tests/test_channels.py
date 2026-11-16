@@ -5,10 +5,10 @@ from storage import Scores
 from bot import client,setgame,GameView,games
 class Channels(unittest.IsolatedAsyncioTestCase):
  async def asyncSetUp(self):
-  self.old=client.scores;client.scores=Scores(':memory:');client.sessions.clear()
+  self.old_info=client.application_info;client.application_info=AsyncMock(return_value=NS(team=None,owner=NS(id=7)));self.old=client.scores;client.scores=Scores(':memory:');client.sessions.clear()
  async def asyncTearDown(self):
   for v in list(client.sessions.values()):v.stop()
-  client.sessions.clear();client.scores.close();client.scores=self.old
+  client.sessions.clear();client.scores.close();client.scores=self.old;client.application_info=self.old_info
  def interaction(self,g=1,c=10,u=7):
   return NS(guild_id=g,channel_id=c,guild=NS(id=g,owner_id=7,me=object()),user=NS(id=u,display_name='Test'),response=NS(is_done=lambda:False,send_message=AsyncMock(),defer=AsyncMock()),followup=NS(send=AsyncMock()))
  def channel(self,g,c):
