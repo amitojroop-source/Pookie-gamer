@@ -44,9 +44,9 @@ class Arcade(discord.Client):
         self.scores=Scores(os.getenv('DATABASE_PATH','data/pookie.sqlite3'))
         self.add_view(Lobby(self))
 
-    async def sync_guild(self,guild):
+    async def sync_guild(self,guild,*,force=False):
         async with self.sync_lock:
-            if guild.id in self.synced:return
+            if not force and guild.id in self.synced:return
             try:
                 self.tree.copy_global_to(guild=guild)
                 commands=await self.tree.sync(guild=guild)
@@ -60,7 +60,14 @@ class Arcade(discord.Client):
         await self.change_presence(activity=discord.Game('/games • 10 games, everyone welcome'))
         log.info('Pookie Gamer is online in %s servers',len(self.guilds))
 
-    async def on_guild_join(self,guild): await self.sync_guild(guild)
+    async def on_guild_join(self,guild):
+        # A re-invite can remove Discord's old commands while our cache survives.
+        await self.sync_guild(guild,force=True)
+
+    async def on_guild_remove(self,guild):
+        async with self.sync_lock:
+            self.synced.discard(guild.id)
+        log.info('Bot removed from server %s; command registration will refresh on rejoin',guild.id)
 
     async def close(self):
         # In-progress sessions end at restart. Completed scores remain in SQLite.
