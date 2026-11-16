@@ -40,10 +40,10 @@ class GameUI(unittest.IsolatedAsyncioTestCase):
         await view.move(i,'hide');self.assertEqual(view.game.exposed,[])
         await view.move(i,'quit');self.assertEqual(view.game.outcome,'abandoned')
     async def test_registered_commands_public_and_no_secret_options(self):
-        names={command.name for command in client.tree.get_commands()};self.assertEqual(len(names),15)
+        names={command.name for command in client.tree.get_commands()};self.assertEqual(len(names),16)
         self.assertTrue(set(GAMES)<=names)
         for command in client.tree.get_commands():
-            self.assertIsNone(command.default_permissions);self.assertEqual(len(command.parameters),0)
+            self.assertIsNone(command.default_permissions);self.assertEqual(len(command.parameters),2 if command.name=='setgame' else 0)
     async def test_active_round_and_failed_send_guard(self):
         old_scores=client.scores;client.scores=self.arcade.scores;client.sessions.clear();client.starts.clear()
         first=self.interaction();first.user.display_name='Test';first.response.is_done=lambda:False

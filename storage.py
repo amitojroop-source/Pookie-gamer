@@ -14,7 +14,22 @@ class Scores:
             user_id INTEGER NOT NULL, game TEXT NOT NULL, outcome TEXT NOT NULL,
             points INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)''')
         self.db.execute('CREATE INDEX IF NOT EXISTS results_server_user ON results(guild_id,user_id)')
+        self.db.execute('CREATE TABLE IF NOT EXISTS game_settings (guild_id INTEGER PRIMARY KEY, channel_id INTEGER NOT NULL)')
+        if 'second_channel_id' not in {r[1] for r in self.db.execute('PRAGMA table_info(game_settings)')}:
+            self.db.execute('ALTER TABLE game_settings ADD COLUMN second_channel_id INTEGER')
         self.db.commit()
+
+    def game_channel(self,guild):
+        row=self.db.execute('SELECT channel_id FROM game_settings WHERE guild_id=?',(guild,)).fetchone()
+        return row['channel_id'] if row else None
+
+    def game_channels(self,guild):
+        row=self.db.execute('SELECT channel_id, second_channel_id FROM game_settings WHERE guild_id=?',(guild,)).fetchone()
+        return {c for c in row if c is not None} if row else set()
+
+    def set_game_channel(self,guild,channel,second=None):
+        with self.db:
+            self.db.execute('INSERT INTO game_settings(guild_id,channel_id,second_channel_id) VALUES (?,?,?) ON CONFLICT(guild_id) DO UPDATE SET channel_id=excluded.channel_id,second_channel_id=excluded.second_channel_id',(guild,channel,second))
 
     def record(self,session,guild,user,game,outcome,points):
         with self.db:
@@ -28,3 +43,4 @@ class Scores:
         return self.db.execute("SELECT user_id, SUM(points) AS points, SUM(outcome='win') AS wins FROM results WHERE guild_id=? GROUP BY user_id ORDER BY points DESC,wins DESC,user_id ASC LIMIT 10",(guild,)).fetchall()
 
     def close(self): self.db.close()
+

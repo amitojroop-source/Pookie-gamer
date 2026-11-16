@@ -20,6 +20,15 @@ async def private_reply(interaction,text):
     else:
         await interaction.response.send_message(text,ephemeral=True)
 
+async def game_channel_allowed(client,interaction):
+    if not interaction.guild_id:
+        await private_reply(interaction,'Play inside a server using /games.');return False
+    channels=client.scores.game_channels(interaction.guild_id)
+    if channels and interaction.channel_id not in channels:
+        await private_reply(interaction,'🎮 Games are only available in '+', '.join(f'<#{c}>' for c in sorted(channels))+'.');return False
+    return True
+
+
 class Arcade(discord.Client):
     def __init__(self):
         # Slash commands and components need no message content or members intent.
@@ -62,6 +71,7 @@ class Arcade(discord.Client):
     async def start_game(self,interaction,kind):
         if not interaction.guild_id:
             await private_reply(interaction,'Play inside a server using /games.');return
+        if not await game_channel_allowed(self,interaction):return
         key=(interaction.guild_id,interaction.user.id)
         if key in self.sessions:
             view=self.sessions[key]
@@ -118,6 +128,7 @@ class GameView(discord.ui.View):
         self.build_controls()
 
     async def interaction_check(self,interaction):
+        if not await game_channel_allowed(self.client,interaction):return False
         if interaction.user.id!=self.user_id or interaction.guild_id!=self.guild_id:
             await private_reply(interaction,'This round belongs to another player. Start your own with /games!');return False
         if self.game.done:
@@ -165,6 +176,7 @@ class GameView(discord.ui.View):
         # Acknowledge before waiting on any concurrent callback or Discord edit.
         await interaction.response.defer()
         async with self.lock:
+            if not await game_channel_allowed(self.client,interaction):return
             if self.game.done:
                 await private_reply(interaction,'This round has already ended.');return
             if revision is not None and revision!=self.revision:
@@ -217,9 +229,32 @@ class Lobby(discord.ui.View):
 
 client=Arcade()
 
+@client.tree.command(name='setgame',description='Server owner: choose one or two channels where games can be played.')
+@app_commands.guild_only()
+@app_commands.describe(channel='The first game channel.',second_channel='Optional second game channel. Omit to allow only the first channel.')
+async def setgame(interaction:discord.Interaction,channel:discord.TextChannel,second_channel:discord.TextChannel=None):
+    if interaction.guild is None or interaction.user.id!=interaction.guild.owner_id:
+        await private_reply(interaction,'Only this server’s owner can set the game channel.');return
+    selected=[channel]+([second_channel] if second_channel else [])
+    for selected_channel in selected:
+        if selected_channel.guild.id!=interaction.guild_id:
+            await private_reply(interaction,'Choose channels in this server.');return
+        permissions=selected_channel.permissions_for(interaction.guild.me)
+        if not (permissions.view_channel and permissions.send_messages and permissions.embed_links):
+            await private_reply(interaction,'I need View Channel, Send Messages and Embed Links in each selected channel.');return
+    await interaction.response.defer(ephemeral=True)
+    client.scores.set_game_channel(interaction.guild_id,channel.id,second_channel.id if second_channel else None)
+    allowed={c.id for c in selected}
+    # Existing rounds in other channels must stop too; other servers are untouched.
+    for view in list(client.sessions.values()):
+        if view.guild_id==interaction.guild_id and (view.message is None or view.message.channel.id not in allowed):
+            await view.end('The server owner changed the game channel. Start a new round in the game channel.')
+    await interaction.followup.send('✅ Games are now only allowed in '+', '.join(f'<#{c}>' for c in sorted(allowed))+'. Saved separately for this server.',ephemeral=True)
+
 @client.tree.command(name='games',description='Open the Pookie Gamer arcade — everyone can play!')
 @app_commands.guild_only()
 async def games(interaction:discord.Interaction):
+    if not await game_channel_allowed(client,interaction):return
     embed=discord.Embed(title='🎮 POOKIE GAMER',description='**Pick a game. Make your move. Climb the leaderboard.**\n\n'+'\n'.join(f'{emoji} **{title}** — {description}' for emoji,title,description in GAMES.values())+'\n\nEveryone can start their own round. Your buttons belong to you.\n🏆 `/leaderboard` · ⭐ `/stats` · 🛑 `/stopgame`',color=COLOR)
     embed.set_footer(text='10 games • No role required • No paid API • Scores saved per server')
     await interaction.response.send_message(embed=embed,view=Lobby(client))
@@ -257,7 +292,7 @@ async def stats(interaction:discord.Interaction):
 @client.tree.command(name='help',description='How to play and use Pookie Gamer.')
 @app_commands.guild_only()
 async def help_command(interaction:discord.Interaction):
-    await interaction.response.send_message(embed=discord.Embed(title='💜 Welcome to Pookie Gamer',description='Use **/games** and choose from 10 games, or use a game command directly.\n\n**Everyone can play** — there are no owner, Staff, or premium restrictions. Many players can play at once. Each player gets one active round per server.\n\nUse buttons for choices and boards; **Enter guess** opens a private answer box. Game progress is public in the channel.\n\n**Scoring:** each game displays its earned points. Country, Trivia, Emoji Riddles, Scramble and Math award 10 points per correct answer; 3/5 counts as a win. Faster wins earn more points in Wordle, Number, Codebreaker and Memory.\n\n**/stopgame** ends your round. Three minutes of inactivity expires it. Rounds end on bot restarts; saved scores remain when persistent storage is configured.\n\n**/leaderboard** shows server rankings. **/stats** shows your record.',color=COLOR),ephemeral=True)
+    await interaction.response.send_message(embed=discord.Embed(title='💜 Welcome to Pookie Gamer',description='Use **/games** and choose from 10 games, or use a game command directly.\n\n**Everyone can play** in the game channel. The server owner can choose one or two channels with `/setgame`; the setting is saved separately for each server. Many players can play at once. Each player gets one active round per server.\n\nUse buttons for choices and boards; **Enter guess** opens a private answer box. Game progress is public in the channel.\n\n**Scoring:** each game displays its earned points. Country, Trivia, Emoji Riddles, Scramble and Math award 10 points per correct answer; 3/5 counts as a win. Faster wins earn more points in Wordle, Number, Codebreaker and Memory.\n\n**/stopgame** ends your round. Three minutes of inactivity expires it. Rounds end on bot restarts; saved scores remain when persistent storage is configured.\n\n**/leaderboard** shows server rankings. **/stats** shows your record.',color=COLOR),ephemeral=True)
 
 @client.tree.error
 async def command_error(interaction,error):
@@ -271,3 +306,4 @@ if __name__=='__main__':
     if not token:raise SystemExit('Set DISCORD_BOT_TOKEN to the token for your NEW Pookie Gamer bot.')
     logging.basicConfig(level=logging.INFO,format='%(asctime)s %(levelname)s %(name)s: %(message)s')
     client.run(token)
+
